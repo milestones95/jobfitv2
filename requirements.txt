@@ -1,0 +1,7 @@
+openai
+playwright
+pydantic
+python-dotenv
+fastapi
+uvicorn
+markdownify
