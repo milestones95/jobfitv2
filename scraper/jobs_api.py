@@ -117,11 +117,16 @@ class ResponseRecorder:
             data = json.loads(text)
         except Exception:
             return
+        try:
+            post_data = request.post_data
+        except UnicodeDecodeError:
+            # Binary (e.g. gzipped) request body; it can't be replayed for pagination anyway.
+            post_data = None
         self.responses.append(
             CapturedResponse(
                 url=response.url,
                 method=request.method,
-                post_data=request.post_data,
+                post_data=post_data,
                 headers=request.headers,
                 text=text,
                 data=data,

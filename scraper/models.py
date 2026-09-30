@@ -28,3 +28,11 @@ class ScrapeResult(BaseModel):
     # Jobs scoring at or above this are the suggestions; None if jobs weren't scored.
     min_match_pct: int | None = None
     screenshot: bytes | None = None
+
+
+class JobListing(BaseModel):
+    url: str  # The page the jobs were read from.
+    # "api", "html", "html:search", "ats:<board>" (see ScrapeResult.strategy), or None if nothing found.
+    strategy: str | None = None
+    jobs: list[Job] = []
+    screenshot: bytes | None = None
