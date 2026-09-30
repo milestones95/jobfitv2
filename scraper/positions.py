@@ -21,6 +21,9 @@ POSITIONS_HREF = re.compile(
 )
 
 
+URL_ONLY_SCORE = 5
+
+
 def score_positions_link(text: str, href: str) -> int:
     if not href or SKIP_HREF.match(href):
         return 0
@@ -28,7 +31,7 @@ def score_positions_link(text: str, href: str) -> int:
     if POSITIONS_TEXT.search(text):
         score += 10
     if POSITIONS_HREF.search(href):
-        score += 5
+        score += URL_ONLY_SCORE
     return score
 
 
@@ -48,6 +51,13 @@ async def follow_positions_link(page: Page, log: Callable[..., None] = print) ->
     """Navigate to the open-positions page if the careers page links to one. Returns the current URL."""
     links = await collect_links(page, "body")
     target = best_link(links, page.url, scorer=score_positions_link)
+    # Several links that match only by URL (e.g. an "Apply" link per job to jobs.ashbyhq.com)
+    # mean the roles are listed on this page, so stay rather than follow one of them.
+    url_only = {l["href"] for l in links if score_positions_link(l["text"], l["href"]) == URL_ONLY_SCORE}
+    if target and len(url_only) > 1 and not any(
+        score_positions_link(l["text"], l["href"]) > URL_ONLY_SCORE for l in links
+    ):
+        target = None
     if target and not same_page(target, page.url):
         log(f"Open positions link: {target}")
         await page.goto(target, wait_until="domcontentloaded", timeout=30000)
