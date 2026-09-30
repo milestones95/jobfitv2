@@ -5,6 +5,7 @@ Flow: record every JSON response -> keep only responses that read like job posti
 objects -> learn which fields hold title/url/location -> page through the API for the rest.
 """
 
+import html
 import json
 import re
 from dataclasses import dataclass
@@ -71,6 +72,7 @@ LOCATION_KEYS = [
     "locations",
     "city",
 ]
+DESCRIPTION_KEYS = ["descriptionPlain", "content", "description", "descriptionHtml", "jobDescription"]
 EXTRA_JOB_KEYS = {
     "id", "department", "departments", "team", "employmentType", "workplaceType",
     "updated_at", "publishedAt", "postedOn", "categories", "requisition_id", "isRemote",
@@ -225,6 +227,7 @@ class FieldMap(BaseModel):
     # e.g. "https://example.com/careers/{id}" with {dotted.path} placeholders into the job object.
     url_template: str | None = None
     location_path: str | None = None
+    description_path: str | None = None
 
 
 def heuristic_field_map(items: list[dict]) -> FieldMap | None:
@@ -232,7 +235,12 @@ def heuristic_field_map(items: list[dict]) -> FieldMap | None:
     url = first_key(items, URL_KEYS)
     if not title or not url:
         return None
-    return FieldMap(title_path=title, url_path=url, location_path=first_key(items, LOCATION_KEYS, want_str=False))
+    return FieldMap(
+        title_path=title,
+        url_path=url,
+        location_path=first_key(items, LOCATION_KEYS, want_str=False),
+        description_path=first_key(items, DESCRIPTION_KEYS),
+    )
 
 
 async def llm_field_map(items: list[dict], page_url: str) -> FieldMap | None:
@@ -241,7 +249,7 @@ async def llm_field_map(items: list[dict], page_url: str) -> FieldMap | None:
         model=MODEL,
         instructions=(
             "You are given sample job objects from a careers site API. Identify which fields hold the job "
-            "title, the job posting URL, and the location. Use dotted paths (e.g. 'categories.location', "
+            "title, the job posting URL, the location, and the job description text (if present). Use dotted paths (e.g. 'categories.location', "
             "'locations.0.name'). If no field holds a full or relative URL, set url_template to a URL built "
             "from the careers page URL using {dotted.path} placeholders, e.g. 'https://site.com/jobs/{id}'. "
             "Leave url_template empty if a URL cannot be built."
@@ -263,6 +271,15 @@ def as_text(value: Any) -> str | None:
         parts = [as_text(v) for v in value]
         return "; ".join(p for p in parts if p) or None
     return str(value)
+
+
+def clean_description(value: Any) -> str | None:
+    """Plain text from a description field. Greenhouse returns escaped HTML, so unescape before stripping tags."""
+    text = as_text(value)
+    if not text:
+        return None
+    text = re.sub(r"<[^>]+>", " ", html.unescape(text))
+    return re.sub(r"\s+", " ", html.unescape(text)).strip() or None
 
 
 def resolve_url(value: str, page_url: str) -> str:
@@ -302,7 +319,8 @@ def map_jobs(items: list[dict], fields: FieldMap, page_url: str) -> list[Job]:
         elif fields.url_template:
             url = fill_template(fields.url_template, item)
         location = as_text(get_path(item, fields.location_path)) if fields.location_path else None
-        jobs.append(Job(title=title, url=url, location=location, source="api"))
+        description = clean_description(get_path(item, fields.description_path)) if fields.description_path else None
+        jobs.append(Job(title=title, url=url, location=location, description=description, source="api"))
     return jobs
 
 
@@ -396,7 +414,10 @@ async def jobs_from_array(
     items = await paginate(context, job_array, log) if paginate_api else job_array.items
     fields = heuristic_field_map(items)
     if fields:
-        log(f"Job format: title={fields.title_path} url={fields.url_path} location={fields.location_path}")
+        log(
+            f"Job format: title={fields.title_path} url={fields.url_path} location={fields.location_path} "
+            f"description={fields.description_path}"
+        )
     else:
         log("Unrecognized job format; asking the LLM to map fields")
         fields = await llm_field_map(items, page_url)
