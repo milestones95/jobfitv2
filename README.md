@@ -33,3 +33,26 @@ python -m scraper.main "Stripe" --role-file my_role.txt
 uvicorn scraper.app:app --reload
 ```
 Then open http://localhost:8000
+
+## MCP server (use it from Claude)
+`scraper/mcp_server.py` exposes the same steps as tools, so you can ask Claude "which roles at Browserbase fit me?":
+
+| Tool | What it does |
+|---|---|
+| `find_careers_page(company)` | Finds the careers page and open-positions page |
+| `list_jobs(company or careers_url)` | Reads every role from the live site (background task) |
+| `rank_jobs(listing_id, ideal_role, min_match_pct)` | Fetches descriptions and scores the roles (background task) |
+| `get_results(task_id)` | Waits for a `list_jobs` / `rank_jobs` task and returns its result |
+| `get_job_details(url)` | One job's full description |
+
+Listings and their descriptions are stored in `.cache/` for 6 hours, so re-ranking with a different ideal role only re-scores.
+`skills/job-search/SKILL.md` is a Claude skill that walks Claude through the workflow; copy it to `~/.claude/skills/` (Claude Code) or upload it to claude.ai.
+
+### Claude Code
+```
+claude mcp add --scope user jobfit -e PYTHONPATH=/path/to/scrape-jobs -- /path/to/scrape-jobs/.venv/bin/python -m scraper.mcp_server
+```
+
+### claude.ai
+Run it over HTTP (`python -m scraper.mcp_server --http`, served at `/mcp`), or build the `Dockerfile` and deploy it to a host that runs long-lived containers (e.g. Fly.io or Render) with `OPENAI_API_KEY` set. Then add `https://<host>/mcp` in claude.ai under Settings → Connectors → Add custom connector.
+The server has no auth yet, and every search uses your OpenAI key and runs a browser, so don't share the URL publicly.

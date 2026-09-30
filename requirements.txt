@@ -1,7 +1,8 @@
 openai
-playwright
+playwright==1.63.0
 pydantic
 python-dotenv
 fastapi
 uvicorn
 markdownify
+mcp
